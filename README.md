@@ -23,7 +23,7 @@ func main() {
 	e := echo.New()
 	
 	e.Any("/pet/*", petHandler)
-	e.GET("/swagger/*", swaggerui.EchoHandler(spec))
+	e.GET("/swagger/*", swaggerui.EchoHandler("/swagger", spec))
 	
 	log.Println("serving on :8080")
 	log.Fatal(http.ListenAndServe(":8080", nil))
