@@ -4,6 +4,8 @@ import (
 	"embed"
 	"io/fs"
 	"net/http"
+
+	"github.com/labstack/echo/v4"
 )
 
 //go:generate go run generate.go
@@ -25,4 +27,10 @@ func Handler(spec []byte) http.Handler {
 	mux.HandleFunc("/swagger_spec", byteHandler(spec))
 	mux.Handle("/", http.FileServer(http.FS(static)))
 	return mux
+}
+
+// EchoHandler returns an echo.HandlerFunc that will serve a self-hosted Swagger UI with your spec embedded
+func EchoHandler(strip string, spec []byte) echo.HandlerFunc {
+	handler := Handler(spec)
+	return echo.WrapHandler(http.StripPrefix(strip, handler))
 }

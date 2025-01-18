@@ -1,17 +1,16 @@
 package main
 
 import (
-	"encoding/json"
 	"net/http"
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/labstack/echo/v4"
 )
 
-// ResponseType represents a type of response
 type ResponseType string
 
-// Response types
 const (
 	Error ResponseType = "error message"
 	Info  ResponseType = "info message"
@@ -23,7 +22,6 @@ type apiResponse struct {
 	Message  string       `json:"message"`
 }
 
-// Pet represents a pet
 type Pet struct {
 	Name    string `json:"name"`
 	PetType string `json:"pet_type"`
@@ -45,58 +43,47 @@ var petDB = []Pet{
 }
 var dbLock sync.RWMutex
 
-func respondSuccessMessage(w http.ResponseWriter, message string) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(apiResponse{
-		Code:     http.StatusOK,
-		RespType: Info,
-		Message:  message,
-	})
-}
-
-func respondErrorMessage(w http.ResponseWriter, statusCode int, message string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(statusCode)
-	json.NewEncoder(w).Encode(apiResponse{
-		Code:     statusCode,
-		RespType: Error,
-		Message:  message,
-	})
-}
-
-func respondObject(w http.ResponseWriter, object interface{}) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(object)
-}
-
-func petHandler(w http.ResponseWriter, r *http.Request) {
+func petHandler(c echo.Context) error {
 	type petResponse struct {
 		ID int `json:"id"`
 		Pet
 	}
 
-	idStr := strings.TrimPrefix(r.URL.Path, "/pet/")
+	idStr := strings.TrimPrefix(c.Request().URL.Path, "/pet/")
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
-		respondErrorMessage(w, http.StatusBadRequest, "invalid id")
-		return
+		return c.JSON(http.StatusBadRequest, apiResponse{
+			Code:     http.StatusBadRequest,
+			RespType: Error,
+			Message:  "invalid id",
+		})
 	}
-	switch r.Method {
+
+	switch c.Request().Method {
 	case "PUT":
-		if r.Header.Get("X-API-KEY") == "" {
-			respondErrorMessage(w, http.StatusUnauthorized, "unauthorized")
-			return
+		if c.Request().Header.Get("X-API-KEY") == "" {
+			return c.JSON(http.StatusUnauthorized, apiResponse{
+				Code:     http.StatusUnauthorized,
+				RespType: Error,
+				Message:  "unauthorized",
+			})
 		}
 		dbLock.Lock()
 		defer dbLock.Unlock()
 		if id < 0 || id >= len(petDB) {
-			respondErrorMessage(w, http.StatusNotFound, "pet not found")
-			return
+			return c.JSON(http.StatusNotFound, apiResponse{
+				Code:     http.StatusNotFound,
+				RespType: Error,
+				Message:  "pet not found",
+			})
 		}
 		newPet := &Pet{}
-		if err := json.NewDecoder(r.Body).Decode(newPet); err != nil {
-			respondErrorMessage(w, http.StatusBadRequest, "pet object")
-			return
+		if err := c.Bind(newPet); err != nil {
+			return c.JSON(http.StatusBadRequest, apiResponse{
+				Code:     http.StatusBadRequest,
+				RespType: Error,
+				Message:  "invalid pet object",
+			})
 		}
 		if newPet.Name != "" {
 			petDB[id].Name = newPet.Name
@@ -104,19 +91,29 @@ func petHandler(w http.ResponseWriter, r *http.Request) {
 		if newPet.PetType != "" {
 			petDB[id].PetType = newPet.PetType
 		}
-		respondSuccessMessage(w, "pet updated")
-		return
+		return c.JSON(http.StatusOK, apiResponse{
+			Code:     http.StatusOK,
+			RespType: Info,
+			Message:  "pet updated",
+		})
+
 	case "GET":
 		dbLock.RLock()
 		defer dbLock.RUnlock()
 		if id < 0 || id >= len(petDB) {
-			respondErrorMessage(w, http.StatusNotFound, "pet not found")
-			return
+			return c.JSON(http.StatusNotFound, apiResponse{
+				Code:     http.StatusNotFound,
+				RespType: Error,
+				Message:  "pet not found",
+			})
 		}
-		respondObject(w, petResponse{ID: id, Pet: petDB[id]})
-		return
+		return c.JSON(http.StatusOK, petResponse{ID: id, Pet: petDB[id]})
+
 	default:
-		respondErrorMessage(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
+		return c.JSON(http.StatusMethodNotAllowed, apiResponse{
+			Code:     http.StatusMethodNotAllowed,
+			RespType: Error,
+			Message:  "method not allowed",
+		})
 	}
 }
